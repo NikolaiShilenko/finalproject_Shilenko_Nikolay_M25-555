@@ -41,9 +41,6 @@ Thumbs.db
 # Ruff
 .ruff_cache/
 
-# App data
-data/
-
 # Logs
 logs/
 
@@ -51,5 +48,3 @@ logs/
 config.json
 !config.example.json
 
-# Environment variables
-.env
