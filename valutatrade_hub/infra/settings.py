@@ -34,7 +34,7 @@ class SettingsLoader:
                 with open(config_file, 'r') as f:
                     user_config = json.load(f)
                     self._config.update(user_config)
-            except:
+            except Exception:
                 pass
 
     def get(self, key, default=None):

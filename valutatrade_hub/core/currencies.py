@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 from .exceptions import CurrencyNotFoundError
 
 
@@ -71,11 +72,15 @@ def init_default_currencies():
     register_currency(FiatCurrency("US Dollar", "USD", "United States"))
     register_currency(FiatCurrency("Euro", "EUR", "Eurozone"))
     register_currency(FiatCurrency("Russian Ruble", "RUB", "Russia"))
+    register_currency(FiatCurrency("Japanese Yen", "JPY", "Japan"))
+    register_currency(FiatCurrency("British Pound", "GBP", "United Kingdom"))
+    register_currency(FiatCurrency("Canadian Dollar", "CAD", "Canada"))
 
     register_currency(CryptoCurrency("Bitcoin", "BTC", "SHA-256", 1_120_000_000_000))
     register_currency(CryptoCurrency("Ethereum", "ETH", "Ethash", 372_000_000_000))
     register_currency(CryptoCurrency("Litecoin", "LTC", "Scrypt", 5_800_000_000))
-
+    register_currency(CryptoCurrency("Solana", "SOL", "Proof of History", 65_000_000_000))
+    register_currency(CryptoCurrency("Cardano", "ADA", "Ouroboros", 15_000_000_000))
 
 # Автоматическая инициализация
 init_default_currencies()

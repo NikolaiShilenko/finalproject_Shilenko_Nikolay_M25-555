@@ -7,8 +7,10 @@ readme = "README.md"
 packages = [{include = "valutatrade_hub", from = "."}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 prettytable = "^3.10.0"
+requests = "^2.31.0"
+python-dotenv = "^1.2.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.4.2"

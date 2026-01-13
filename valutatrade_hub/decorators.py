@@ -1,6 +1,6 @@
 import logging
-from functools import wraps
 from datetime import datetime
+from functools import wraps
 
 
 def log_action(action_name=None, verbose=False):

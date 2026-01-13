@@ -1,12 +1,20 @@
 from datetime import datetime
-from .models import User, Portfolio
-from .currencies import get_currency, CurrencyNotFoundError
-from .exceptions import InsufficientFundsError, ApiRequestError
+
 from ..decorators import log_action
+from .currencies import CurrencyNotFoundError, get_currency
+from .exceptions import ApiRequestError, InsufficientFundsError
+from .models import Portfolio, User
 from .utils import (
-    read_json_file, write_json_file, hash_password,
-    get_next_user_id, validate_username, validate_password,
-    validate_amount, get_exchange_rate, save_session, load_session
+    get_exchange_rate,
+    get_next_user_id,
+    hash_password,
+    load_session,
+    read_json_file,
+    save_session,
+    validate_amount,
+    validate_password,
+    validate_username,
+    write_json_file,
 )
 
 
@@ -159,7 +167,7 @@ class PortfolioManager:
             return {"success": False, "message": "'amount' должен быть положительным числом"}
 
         try:
-            currency = get_currency(currency_code)
+            get_currency(currency_code)
         except CurrencyNotFoundError as e:
             return {"success": False, "message": str(e)}
 
@@ -216,7 +224,7 @@ class PortfolioManager:
             return {"success": False, "message": "'amount' должен быть положительным числом"}
 
         try:
-            currency = get_currency(currency_code)
+            get_currency(currency_code)
         except CurrencyNotFoundError as e:
             return {"success": False, "message": str(e)}
 

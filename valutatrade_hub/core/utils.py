@@ -1,9 +1,10 @@
-import json
 import hashlib
+import json
 import random
 import string
 from pathlib import Path
-from .currencies import get_currency, CurrencyNotFoundError
+
+from .currencies import CurrencyNotFoundError, get_currency
 from .exceptions import ApiRequestError
 
 
@@ -73,11 +74,28 @@ def get_exchange_rate(from_currency, to_currency="USD"):
     if from_currency == to_currency:
         return 1.0
 
+    # Сначала пробуем получить из кэша rates.json
+    rates_data = read_json_file("data/rates.json")
+
+    if "pairs" in rates_data:
+        pairs = rates_data["pairs"]
+
+        # прямой курс
+        direct_key = f"{from_currency}_{to_currency}"
+        if direct_key in pairs:
+            return pairs[direct_key]["rate"]
+
+        # обратный курс
+        reverse_key = f"{to_currency}_{from_currency}"
+        if reverse_key in pairs:
+            rate = pairs[reverse_key]["rate"]
+            return 1.0 / rate if rate != 0 else 0
+
     try:
         get_currency(from_currency)
         get_currency(to_currency)
     except CurrencyNotFoundError as e:
-        raise CurrencyNotFoundError(e.code)
+        raise CurrencyNotFoundError(e.code) from e
 
     rates = read_json_file("data/rates.json")
 
@@ -86,14 +104,12 @@ def get_exchange_rate(from_currency, to_currency="USD"):
         rate = rates[rate_key]
         return float(rate) if isinstance(rate, (int, float)) else rate
 
-    # Fallback на обратный расчет
     reverse_key = f"{to_currency}_{from_currency}"
     if reverse_key in rates:
         rate = rates[reverse_key]
         reverse_rate = float(rate) if isinstance(rate, (int, float)) else rate
         return 1.0 / reverse_rate
 
-    # если вообще нет данных
     raise ApiRequestError(f"Курс {from_currency}→{to_currency} не найден")
 
 def save_session(user_id=None):

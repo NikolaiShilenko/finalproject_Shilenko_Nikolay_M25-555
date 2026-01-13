@@ -1,10 +1,15 @@
-import sys
 import argparse
+import json
+import sys
 from datetime import datetime
+from pathlib import Path
+
 from prettytable import PrettyTable
-from ..core.usecases import AuthManager, PortfolioManager, CurrencyManager
-from ..core.exceptions import InsufficientFundsError, CurrencyNotFoundError, ApiRequestError
+
 from ..core.currencies import get_all_currencies
+from ..core.usecases import AuthManager, CurrencyManager, PortfolioManager
+from ..parser_service.config import ParserConfig
+from ..parser_service.updater import RatesUpdater
 
 
 class CLI:
@@ -45,10 +50,17 @@ class CLI:
         rate_parser.add_argument("--from", dest="from_currency", required=True)
         rate_parser.add_argument("--to", default="USD")
 
+        update_parser = subparsers.add_parser("update-rates", help="Обновить курсы")
+        update_parser.add_argument("--source", choices=["coingecko", "exchangerate"], help="Источник данных")
+
+        show_rates_parser = subparsers.add_parser("show-rates", help="Показать курсы из кэша")
+        show_rates_parser.add_argument("--currency", help="Фильтр по валюте")
+        show_rates_parser.add_argument("--top", type=int, help="Топ N валют")
+        show_rates_parser.add_argument("--base", default="USD", help="Базовая валюта")
+
+        subparsers.add_parser("list-currencies", help="Список валют")
+
         subparsers.add_parser("logout", help="Выход")
-
-        currencies_parser = subparsers.add_parser("list-currencies", help="Список валют")
-
         subparsers.add_parser("help", help="Справка")
 
         return parser
@@ -75,6 +87,10 @@ class CLI:
             self.handle_sell(parsed_args)
         elif parsed_args.command == "get-rate":
             self.handle_get_rate(parsed_args)
+        elif parsed_args.command == "update-rates":
+            self.handle_update_rates(parsed_args)
+        elif parsed_args.command == "show-rates":
+            self.handle_show_rates(parsed_args)
         elif parsed_args.command == "logout":
             self.handle_logout()
         elif parsed_args.command == "list-currencies":
@@ -95,6 +111,8 @@ class CLI:
         print("  buy              - Купить валюту")
         print("  sell             - Продать валюту")
         print("  get-rate         - Курс валюты")
+        print("  update-rates     - Обновить курсы")
+        print("  show-rates       - Показать курсы из кэша")
         print("  list-currencies  - Список валют")
         print("  logout           - Выход")
         print("  help             - Справка")
@@ -182,6 +200,80 @@ class CLI:
         print(f"\nКурс {result['from_currency']}→{result['to_currency']}: {result['rate']:.6f}")
         print(f"Обратный курс: {result['reverse_rate']:.6f}")
         print(f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    def handle_update_rates(self, args):
+        try:
+            config = ParserConfig()
+            if not config.EXCHANGERATE_API_KEY:
+                print("Внимание: API ключ для ExchangeRate-API не установлен.")
+                print("Установите переменную окружения EXCHANGERATE_API_KEY")
+                print("Или добавьте ключ в config.py")
+
+            updater = RatesUpdater(config)
+            result = updater.run_update(args.source)
+
+            if result["errors"]:
+                print("Обновление завершено с ошибками:")
+                for error in result["errors"]:
+                    print(f"  - {error}")
+                print("Проверьте logs/parser.log для деталей")
+            else:
+                print(f"Обновление успешно. Обновлено курсов: {result['total_updated']}")
+                print(f"Время обновления: {result['timestamp']}")
+
+        except Exception as e:
+            print(f"Ошибка при обновлении курсов: {e}")
+
+    def handle_show_rates(self, args):
+        rates_file = Path("data/rates.json")
+        if not rates_file.exists():
+            print("Локальный кеш курсов пуст.")
+            print("Выполните 'update-rates', чтобы загрузить данные.")
+            return
+
+        try:
+            with open(rates_file, "r") as f:
+                data = json.load(f)
+
+            if "pairs" not in data or not data["pairs"]:
+                print("Локальный кеш курсов пуст.")
+                print("Выполните 'update-rates', чтобы загрузить данные.")
+                return
+
+            pairs = data["pairs"]
+
+            if args.currency:
+                currency = args.currency.upper()
+                filtered = {k: v for k, v in pairs.items()
+                            if currency in k}
+                if not filtered:
+                    print(f"Курс для '{args.currency}' не найден в кеше.")
+                    return
+                pairs = filtered
+
+            sorted_pairs = sorted(pairs.items(),
+                                  key=lambda x: x[1]["rate"],
+                                  reverse=True)
+
+            if args.top:
+                sorted_pairs = sorted_pairs[:args.top]
+
+            table = PrettyTable()
+            table.field_names = ["Пара", "Курс", "Обновлен", "Источник"]
+
+            for pair, info in sorted_pairs:
+                table.add_row([
+                    pair,
+                    f"{info['rate']:.6f}",
+                    info["updated_at"][:19],
+                    info["source"]
+                ])
+
+            print(f"Курсы из кэша (обновлено: {data.get('last_refresh', 'N/A')}):")
+            print(table)
+
+        except Exception as e:
+            print(f"Ошибка при чтении кэша: {e}")
 
     def handle_logout(self):
         result = self.auth_manager.logout()
