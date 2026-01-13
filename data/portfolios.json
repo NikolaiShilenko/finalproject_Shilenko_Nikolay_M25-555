@@ -1,0 +1,54 @@
+[
+  {
+    "user_id": 1,
+    "wallets": {
+      "BTC": {
+        "currency_code": "BTC",
+        "balance": 0.0050000000000000044
+      },
+      "EUR": {
+        "currency_code": "EUR",
+        "balance": 200.0
+      }
+    }
+  },
+  {
+    "user_id": 2,
+    "wallets": {
+      "BTC": {
+        "currency_code": "BTC",
+        "balance": 0.009999999999999998
+      }
+    }
+  },
+  {
+    "user_id": 3,
+    "wallets": {
+      "BTC": {
+        "currency_code": "BTC",
+        "balance": 0.01
+      },
+      "EUR": {
+        "currency_code": "EUR",
+        "balance": 50.0
+      }
+    }
+  },
+  {
+    "user_id": 4,
+    "wallets": {
+      "BTC": {
+        "currency_code": "BTC",
+        "balance": 0.0050000000000000044
+      },
+      "EUR": {
+        "currency_code": "EUR",
+        "balance": 200.0
+      }
+    }
+  },
+  {
+    "user_id": 1,
+    "wallets": {}
+  }
+]
