@@ -245,7 +245,7 @@ make package-install
 ```
 
 ## 📹 Демонстрация:
-https://asciinema.org/
+[![Демонстрация работы ValutaTrade Hub](https://asciinema.org/a/BVZweg3HFTlz8Y8f.svg)](https://asciinema.org/a/BVZweg3HFTlz8Y8f)
 
 ## 📄 Лицензия
 Учебный проект, созданный в рамках экзамена по программированию на Python. Весь код открыт для изучения и может использоваться в образовательных целях.
