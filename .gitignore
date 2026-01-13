@@ -40,3 +40,6 @@ Thumbs.db
 
 # Ruff
 .ruff_cache/
+
+# App data
+data/
