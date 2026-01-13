@@ -1,25 +1,31 @@
 from datetime import datetime
-
-from .models import Portfolio, User
+from .models import User, Portfolio
+from .currencies import get_currency, CurrencyNotFoundError
+from .exceptions import InsufficientFundsError, ApiRequestError
+from ..decorators import log_action
 from .utils import (
-    get_exchange_rate,
-    get_next_user_id,
-    hash_password,
-    read_json_file,
-    validate_amount,
-    validate_currency_code,
-    validate_password,
-    validate_username,
-    write_json_file,
+    read_json_file, write_json_file, hash_password,
+    get_next_user_id, validate_username, validate_password,
+    validate_amount, get_exchange_rate, save_session, load_session
 )
 
 
 class AuthManager:
-
     def __init__(self):
         self.current_user = None
+        self._load_session()
 
-    def register(self, username: str, password: str) -> dict:
+    def _load_session(self):
+        user_id = load_session()
+        if user_id:
+            users = read_json_file("data/users.json")
+            for user_data in users:
+                if user_data["user_id"] == user_id:
+                    self.current_user = User.from_dict(user_data)
+                    break
+
+    @log_action("REGISTER")
+    def register(self, username, password):
         if not validate_username(username):
             return {"success": False, "message": "Имя пользователя не может быть пустым"}
 
@@ -52,12 +58,13 @@ class AuthManager:
 
         return {
             "success": True,
-            "message": f"Пользователь '{username}' зарегистрирован (id={user_id}). "
-                       f"Войдите: login --username {username} --password ****",
-            "user_id": user_id
+            "message": f"Пользователь '{username}' зарегистрирован (id={user_id})",
+            "user_id": user_id,
+            "username": username
         }
 
-    def login(self, username: str, password: str) -> dict:
+    @log_action("LOGIN")
+    def login(self, username, password):
         users = read_json_file("data/users.json")
 
         user_data = None
@@ -74,26 +81,30 @@ class AuthManager:
             return {"success": False, "message": "Неверный пароль"}
 
         self.current_user = user_obj
+        save_session(user_obj.user_id)
+
         return {
             "success": True,
             "message": f"Вы вошли как '{username}'",
-            "user": user_obj
+            "user": user_obj,
+            "user_id": user_obj.user_id,
+            "username": username
         }
 
     def logout(self):
         self.current_user = None
+        save_session(None)
         return {"success": True, "message": "Вы вышли из системы"}
 
-    def is_authenticated(self) -> bool:
+    def is_authenticated(self):
         return self.current_user is not None
 
 
 class PortfolioManager:
-
-    def __init__(self, auth_manager: AuthManager):
+    def __init__(self, auth_manager):
         self.auth = auth_manager
 
-    def show_portfolio(self, base_currency: str = "USD") -> dict:
+    def show_portfolio(self, base_currency="USD"):
         if not self.auth.is_authenticated():
             return {"success": False, "message": "Сначала выполните login"}
 
@@ -110,7 +121,6 @@ class PortfolioManager:
 
         portfolio_obj = Portfolio.from_dict(portfolio_data)
 
-        # расчет стоимости
         wallets_info = []
         total_value = 0.0
 
@@ -118,8 +128,11 @@ class PortfolioManager:
             if currency_code == base_currency:
                 value = wallet.balance
             else:
-                rate = get_exchange_rate(currency_code, base_currency)
-                value = wallet.balance * rate
+                try:
+                    rate = get_exchange_rate(currency_code, base_currency)
+                    value = wallet.balance * rate
+                except (CurrencyNotFoundError, ApiRequestError):
+                    value = 0.0
 
             wallets_info.append({
                 "currency": currency_code,
@@ -137,15 +150,18 @@ class PortfolioManager:
             "total_value": total_value
         }
 
-    def buy_currency(self, currency_code: str, amount: float) -> dict:
+    @log_action("BUY", verbose=True)
+    def buy_currency(self, currency_code, amount):
         if not self.auth.is_authenticated():
             return {"success": False, "message": "Сначала выполните login"}
 
-        if not validate_currency_code(currency_code):
-            return {"success": False, "message": "Неверный код валюты"}
-
         if not validate_amount(amount):
             return {"success": False, "message": "'amount' должен быть положительным числом"}
+
+        try:
+            currency = get_currency(currency_code)
+        except CurrencyNotFoundError as e:
+            return {"success": False, "message": str(e)}
 
         portfolios = read_json_file("data/portfolios.json")
         portfolio_index = -1
@@ -164,7 +180,11 @@ class PortfolioManager:
         if currency_code not in portfolio_obj.wallets:
             portfolio_obj.add_currency(currency_code)
 
-        rate = get_exchange_rate(currency_code, "USD")
+        try:
+            rate = get_exchange_rate(currency_code, "USD")
+        except ApiRequestError as e:
+            return {"success": False, "message": str(e)}
+
         cost_usd = amount * rate
 
         wallet = portfolio_obj.get_wallet(currency_code)
@@ -182,18 +202,23 @@ class PortfolioManager:
             "rate": rate,
             "cost_usd": cost_usd,
             "old_balance": old_balance,
-            "new_balance": wallet.balance
+            "new_balance": wallet.balance,
+            "user_id": self.auth.current_user.user_id,
+            "username": self.auth.current_user.username
         }
 
-    def sell_currency(self, currency_code: str, amount: float) -> dict:
+    @log_action("SELL", verbose=True)
+    def sell_currency(self, currency_code, amount):
         if not self.auth.is_authenticated():
             return {"success": False, "message": "Сначала выполните login"}
 
-        if not validate_currency_code(currency_code):
-            return {"success": False, "message": "Неверный код валюты"}
-
         if not validate_amount(amount):
             return {"success": False, "message": "'amount' должен быть положительным числом"}
+
+        try:
+            currency = get_currency(currency_code)
+        except CurrencyNotFoundError as e:
+            return {"success": False, "message": str(e)}
 
         portfolios = read_json_file("data/portfolios.json")
         portfolio_index = -1
@@ -212,27 +237,24 @@ class PortfolioManager:
         if currency_code not in portfolio_obj.wallets:
             return {
                 "success": False,
-                "message": f"У вас нет кошелька '{currency_code}'. "
-                           f"Добавьте валюту: она создаётся автоматически при первой покупке."
+                "message": f"У вас нет кошелька '{currency_code}'"
             }
+
+        try:
+            rate = get_exchange_rate(currency_code, "USD")
+        except ApiRequestError as e:
+            return {"success": False, "message": str(e)}
 
         wallet = portfolio_obj.get_wallet(currency_code)
-        if amount > wallet.balance:
-            return {
-                "success": False,
-                "message": f"Недостаточно средств: доступно {wallet.balance:.4f} {currency_code}, "
-                           f"требуется {amount:.4f}"
-            }
 
-        # получение курса
-        rate = get_exchange_rate(currency_code, "USD")
+        try:
+            old_balance = wallet.balance
+            wallet.withdraw(amount)
+        except InsufficientFundsError as e:
+            return {"success": False, "message": str(e)}
+
         revenue_usd = amount * rate
 
-        # обновление баланса
-        old_balance = wallet.balance
-        wallet.withdraw(amount)
-
-        # сохранение
         portfolios[portfolio_index] = portfolio_obj.to_dict()
         write_json_file("data/portfolios.json", portfolios)
 
@@ -244,25 +266,25 @@ class PortfolioManager:
             "rate": rate,
             "revenue_usd": revenue_usd,
             "old_balance": old_balance,
-            "new_balance": wallet.balance
+            "new_balance": wallet.balance,
+            "user_id": self.auth.current_user.user_id,
+            "username": self.auth.current_user.username
         }
 
 
 class CurrencyManager:
+    def get_rate(self, from_currency, to_currency="USD"):
+        try:
+            get_currency(from_currency)
+            get_currency(to_currency)
+        except CurrencyNotFoundError as e:
+            return {"success": False, "message": str(e)}
 
-    def get_rate(self, from_currency: str, to_currency: str = "USD") -> dict:
-        if not validate_currency_code(from_currency) or not validate_currency_code(to_currency):
-            return {"success": False, "message": "Неверный код валюты"}
+        try:
+            rate = get_exchange_rate(from_currency, to_currency)
+        except ApiRequestError as e:
+            return {"success": False, "message": str(e)}
 
-        rate = get_exchange_rate(from_currency, to_currency)
-
-        if rate is None:
-            return {
-                "success": False,
-                "message": f"Курс {from_currency}→{to_currency} недоступен. Повторите попытку позже."
-            }
-
-        # расчитуем обратный курс
         reverse_rate = 1 / rate if rate != 0 else 0
 
         return {

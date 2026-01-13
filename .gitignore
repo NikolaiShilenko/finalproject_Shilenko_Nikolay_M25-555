@@ -43,3 +43,10 @@ Thumbs.db
 
 # App data
 data/
+
+# Logs
+logs/
+
+# Configs
+config.json
+!config.example.json

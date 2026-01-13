@@ -1,14 +1,13 @@
-import argparse
 import sys
+import argparse
 from datetime import datetime
-
 from prettytable import PrettyTable
-
-from ..core.usecases import AuthManager, CurrencyManager, PortfolioManager
+from ..core.usecases import AuthManager, PortfolioManager, CurrencyManager
+from ..core.exceptions import InsufficientFundsError, CurrencyNotFoundError, ApiRequestError
+from ..core.currencies import get_all_currencies
 
 
 class CLI:
-
     def __init__(self):
         self.auth_manager = AuthManager()
         self.portfolio_manager = PortfolioManager(self.auth_manager)
@@ -17,38 +16,40 @@ class CLI:
 
     def _create_parser(self):
         parser = argparse.ArgumentParser(
-            description="Валютный Кошелек - управление мультивалютным портфелем",
+            description="Валютный Кошелек",
             prog="project"
         )
 
-        subparsers = parser.add_subparsers(dest="command", help="Команды")
+        subparsers = parser.add_subparsers(dest="command")
 
-        register_parser = subparsers.add_parser("register", help="Регистрация нового пользователя")
-        register_parser.add_argument("--username", required=True, help="Имя пользователя")
-        register_parser.add_argument("--password", required=True, help="Пароль")
+        register_parser = subparsers.add_parser("register", help="Регистрация")
+        register_parser.add_argument("--username", required=True)
+        register_parser.add_argument("--password", required=True)
 
-        login_parser = subparsers.add_parser("login", help="Вход в систему")
-        login_parser.add_argument("--username", required=True, help="Имя пользователя")
-        login_parser.add_argument("--password", required=True, help="Пароль")
+        login_parser = subparsers.add_parser("login", help="Вход")
+        login_parser.add_argument("--username", required=True)
+        login_parser.add_argument("--password", required=True)
 
-        portfolio_parser = subparsers.add_parser("show-portfolio", help="Показать портфель")
-        portfolio_parser.add_argument("--base", default="USD", help="Базовая валюта (по умолчанию USD)")
+        portfolio_parser = subparsers.add_parser("show-portfolio", help="Портфель")
+        portfolio_parser.add_argument("--base", default="USD")
 
-        buy_parser = subparsers.add_parser("buy", help="Купить валюту")
-        buy_parser.add_argument("--currency", required=True, help="Код покупаемой валюты")
-        buy_parser.add_argument("--amount", type=float, required=True, help="Количество")
+        buy_parser = subparsers.add_parser("buy", help="Купить")
+        buy_parser.add_argument("--currency", required=True)
+        buy_parser.add_argument("--amount", type=float, required=True)
 
-        sell_parser = subparsers.add_parser("sell", help="Продать валюту")
-        sell_parser.add_argument("--currency", required=True, help="Код продаваемой валюты")
-        sell_parser.add_argument("--amount", type=float, required=True, help="Количество")
+        sell_parser = subparsers.add_parser("sell", help="Продать")
+        sell_parser.add_argument("--currency", required=True)
+        sell_parser.add_argument("--amount", type=float, required=True)
 
-        rate_parser = subparsers.add_parser("get-rate", help="Получить курс валюты")
-        rate_parser.add_argument("--from", dest="from_currency", required=True, help="Исходная валюта")
-        rate_parser.add_argument("--to", default="USD", help="Целевая валюта (по умолчанию USD)")
+        rate_parser = subparsers.add_parser("get-rate", help="Курс")
+        rate_parser.add_argument("--from", dest="from_currency", required=True)
+        rate_parser.add_argument("--to", default="USD")
 
-        subparsers.add_parser("logout", help="Выход из системы")
+        subparsers.add_parser("logout", help="Выход")
 
-        subparsers.add_parser("help", help="Показать справку")
+        currencies_parser = subparsers.add_parser("list-currencies", help="Список валют")
+
+        subparsers.add_parser("help", help="Справка")
 
         return parser
 
@@ -76,25 +77,28 @@ class CLI:
             self.handle_get_rate(parsed_args)
         elif parsed_args.command == "logout":
             self.handle_logout()
+        elif parsed_args.command == "list-currencies":
+            self.handle_list_currencies()
         elif parsed_args.command == "help":
             self.print_help()
         else:
-            print("Неизвестная команда. Используйте 'help' для справки.")
+            print("Неизвестная команда. Используйте 'help'")
 
     def print_welcome(self):
         print("\n" + "=" * 50)
-        print("     Добро пожаловать в Валютный Кошелек!")
+        print("     Валютный Кошелек")
         print("=" * 50)
-        print("\nДоступные команды:")
-        print("  register    - Регистрация нового пользователя")
-        print("  login       - Вход в систему")
-        print("  show-portfolio - Показать портфель")
-        print("  buy         - Купить валюту")
-        print("  sell        - Продать валюту")
-        print("  get-rate    - Получить курс валюты")
-        print("  logout      - Выход из системы")
-        print("  help        - Показать справку")
-        print("\nПример: project register --username alice --password 1234")
+        print("\nКоманды:")
+        print("  register         - Регистрация")
+        print("  login            - Вход")
+        print("  show-portfolio   - Портфель")
+        print("  buy              - Купить валюту")
+        print("  sell             - Продать валюту")
+        print("  get-rate         - Курс валюты")
+        print("  list-currencies  - Список валют")
+        print("  logout           - Выход")
+        print("  help             - Справка")
+        print("\nПример: project register --username user --password pass")
         print("=" * 50 + "\n")
 
     def print_help(self):
@@ -136,40 +140,72 @@ class CLI:
         result = self.portfolio_manager.buy_currency(args.currency, args.amount)
 
         if not result["success"]:
-            print(result["message"])
+            print(f"Ошибка: {result['message']}")
+            if "Неизвестная валюта" in result["message"]:
+                print("Используйте 'list-currencies' для списка валют")
+            elif "API" in result["message"]:
+                print("Повторите попытку позже")
             return
 
-        print(f"\n{result['message']} по курсу {result['rate']:.2f} USD/{args.currency}")
-        print(f"Оценочная стоимость покупки: {result['cost_usd']:.2f} USD")
-        print("Изменения в портфеле:")
-        print(f"  - {args.currency}: было {result['old_balance']:.4f} → стало {result['new_balance']:.4f}\n")
+        print(f"\n{result['message']}")
+        print(f"Курс: {result['rate']:.2f} USD/{args.currency}")
+        print(f"Стоимость: {result['cost_usd']:.2f} USD")
+        print(f"Баланс: {result['old_balance']:.4f} → {result['new_balance']:.4f}\n")
 
     def handle_sell(self, args):
         result = self.portfolio_manager.sell_currency(args.currency, args.amount)
 
         if not result["success"]:
-            print(result["message"])
+            print(f"Ошибка: {result['message']}")
+            if "Недостаточно средств" in result["message"]:
+                print("Проверьте баланс")
+            elif "Неизвестная валюта" in result["message"]:
+                print("Используйте 'list-currencies' для списка валют")
+            elif "API" in result["message"]:
+                print("Повторите попытку позже")
             return
 
-        print(f"\n{result['message']} по курсу {result['rate']:.2f} USD/{args.currency}")
-        print(f"Оценочная выручка: {result['revenue_usd']:.2f} USD")
-        print("Изменения в портфеле:")
-        print(f"  - {args.currency}: было {result['old_balance']:.4f} → стало {result['new_balance']:.4f}\n")
+        print(f"\n{result['message']}")
+        print(f"Курс: {result['rate']:.2f} USD/{args.currency}")
+        print(f"Выручка: {result['revenue_usd']:.2f} USD")
+        print(f"Баланс: {result['old_balance']:.4f} → {result['new_balance']:.4f}\n")
 
     def handle_get_rate(self, args):
         result = self.currency_manager.get_rate(args.from_currency, args.to)
 
         if not result["success"]:
-            print(result["message"])
+            print(f"Ошибка: {result['message']}")
+            if "Неизвестная валюта" in result["message"]:
+                print("Используйте 'list-currencies' для списка валют")
             return
 
         print(f"\nКурс {result['from_currency']}→{result['to_currency']}: {result['rate']:.6f}")
-        print(f"Обратный курс {result['to_currency']}→{result['from_currency']}: {result['reverse_rate']:.6f}")
+        print(f"Обратный курс: {result['reverse_rate']:.6f}")
         print(f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     def handle_logout(self):
         result = self.auth_manager.logout()
         print(result["message"])
+
+    def handle_list_currencies(self):
+        currencies = get_all_currencies()
+
+        print("\nДоступные валюты:")
+        print("-" * 60)
+
+        table = PrettyTable()
+        table.field_names = ["Тип", "Код", "Название", "Доп. информация"]
+
+        for code, currency in currencies.items():
+            info = currency.get_display_info()
+            parts = info.split(" — ")
+            if len(parts) >= 2:
+                type_code = parts[0]
+                name_desc = parts[1]
+                table.add_row([type_code, code, name_desc[:30], ""])
+
+        print(table)
+        print("-" * 60 + "\n")
 
 
 def main():

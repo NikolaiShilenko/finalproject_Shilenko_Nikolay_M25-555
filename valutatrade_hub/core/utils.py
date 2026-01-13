@@ -1,20 +1,25 @@
-import hashlib
 import json
+import hashlib
 import random
 import string
 from pathlib import Path
+from .currencies import get_currency, CurrencyNotFoundError
+from .exceptions import ApiRequestError
 
 
-def read_json_file(file_path: str):
+def read_json_file(file_path):
     path = Path(file_path)
     if not path.exists():
         return [] if "users" in file_path or "portfolios" in file_path else {}
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return [] if "users" in file_path or "portfolios" in file_path else {}
 
 
-def write_json_file(file_path: str, data):
+def write_json_file(file_path, data):
     path = Path(file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -22,7 +27,7 @@ def write_json_file(file_path: str, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def hash_password(password: str, salt: str = None) -> tuple:
+def hash_password(password, salt=None):
     if salt is None:
         salt = generate_salt()
 
@@ -30,28 +35,32 @@ def hash_password(password: str, salt: str = None) -> tuple:
     return hashed, salt
 
 
-def generate_salt(length: int = 8) -> str:
+def generate_salt(length=8):
     chars = string.ascii_letters + string.digits
     return ''.join(random.choices(chars, k=length))
 
 
-def validate_username(username: str) -> bool:
+def validate_username(username):
     return bool(username and username.strip())
 
 
-def validate_password(password: str) -> bool:
+def validate_password(password):
     return len(password) >= 4
 
 
-def validate_currency_code(currency_code: str) -> bool:
-    return bool(currency_code and currency_code.isalpha() and currency_code.isupper())
+def validate_currency_code(currency_code):
+    try:
+        get_currency(currency_code)
+        return True
+    except CurrencyNotFoundError:
+        return False
 
 
-def validate_amount(amount: float) -> bool:
+def validate_amount(amount):
     return isinstance(amount, (int, float)) and amount > 0
 
 
-def get_next_user_id() -> int:
+def get_next_user_id():
     users = read_json_file("data/users.json")
     if not users:
         return 1
@@ -60,22 +69,38 @@ def get_next_user_id() -> int:
     return max_id + 1
 
 
-def get_exchange_rate(from_currency: str, to_currency: str = "USD") -> float:
+def get_exchange_rate(from_currency, to_currency="USD"):
+    if from_currency == to_currency:
+        return 1.0
+
+    try:
+        get_currency(from_currency)
+        get_currency(to_currency)
+    except CurrencyNotFoundError as e:
+        raise CurrencyNotFoundError(e.code)
+
     rates = read_json_file("data/rates.json")
 
-    # курс к USD
-    if to_currency == "USD":
-        rate_key = f"{from_currency}_USD"
-        if rate_key in rates:
-            return rates[rate_key]
+    rate_key = f"{from_currency}_{to_currency}"
+    if rate_key in rates:
+        rate = rates[rate_key]
+        return float(rate) if isinstance(rate, (int, float)) else rate
 
-    if from_currency == "USD" and to_currency == "EUR":
-        return 0.92
-    elif from_currency == "EUR" and to_currency == "USD":
-        return 1.08
-    elif from_currency == "BTC" and to_currency == "USD":
-        return 45000.0
-    elif from_currency == "USD" and to_currency == "BTC":
-        return 1 / 45000.0
-    else:
-        return 1.0
+    # Fallback на обратный расчет
+    reverse_key = f"{to_currency}_{from_currency}"
+    if reverse_key in rates:
+        rate = rates[reverse_key]
+        reverse_rate = float(rate) if isinstance(rate, (int, float)) else rate
+        return 1.0 / reverse_rate
+
+    # если вообще нет данных
+    raise ApiRequestError(f"Курс {from_currency}→{to_currency} не найден")
+
+def save_session(user_id=None):
+    session_data = {"current_user_id": user_id}
+    write_json_file("data/session.json", session_data)
+
+
+def load_session():
+    session_data = read_json_file("data/session.json")
+    return session_data.get("current_user_id")
